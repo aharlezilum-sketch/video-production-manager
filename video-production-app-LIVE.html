@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ניהול הפקת וידאו - Video Production Manager</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body, #root { width: 100%; height: 100%; margin: 0; padding: 0; }
+  body {
+    font-family: "Heebo", "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+  }
+  [dir="rtl"] { text-align: right; direction: rtl; }
+  [dir="ltr"] { text-align: left; direction: ltr; }
+  .pulse-red { animation: pulseRed 1.4s infinite; }
+  @keyframes pulseRed {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.7); }
+    50% { box-shadow: 0 0 0 12px rgba(239,68,68,0); }
+  }
+  .ai-glow { animation: aiGlow 2s infinite; }
+  @keyframes aiGlow {
+    0%, 100% { box-shadow: 0 0 8px 2px rgba(168,85,247,0.45); }
+    50% { box-shadow: 0 0 18px 6px rgba(168,85,247,0.85); }
+  }
+  .scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+  .scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  .drag-over { background: rgba(59,130,246,0.15); border: 2px dashed #3b82f6 !important; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ============================================================
+   AIRTABLE CONFIGURATION - Your Real Base
+   ============================================================ */
+const AIRTABLE_CONFIG = {
+  baseId: "appH773V6XlaX7wiF",  // Your real base
+  tables: {
+    events:      "אירועים",      // Events table (Hebrew name)
+    corrections: "תיקונים",      // Corrections table
+    editors:     "עורכים",       // Editors table
+  },
+};
+
+/* Field mappings - Exact names from your Airtable */
+const FIELDS = {
+  // אירועים (Events)
+  eventName:      "שם האירוע",
+  eventDate:      "תאריך האירוע",
+  status:         "סטטוס",
+  eventTeam:      "צוות הצילום באירוע",
+  captionLang:    "שפת כותרות",
+  openingStyle:   "סגנון פתיחה",
+  musicMethod:    "שיטת בחירת מוזיקה",
+  musicDetails:   "פרטי שירים וקישורים",
+  danceStructure: "מבנה סרט ריקודים",
+  modestNotes:    "דגשי צניעות וזוגיות",
+  mustHave:       "דמויות ורגעים שאסור לפספס",
+  externalUrl:    "קישור לחומרים חיצוניים",
+  assignedEditor: "עורך מוקצה",
+  editorInstrHe:  "תרגום הנחיות לעורך",
+  rawUrl:         "קישור לחומרי גלם",
+  videoUrl:       "קישור לוידאו סופי",
+  sentimentFlag:  "דגל סנטימנט",
+  aiAlert:        "התראת עומס AI",
+  staffNotes:     "הערות צוות",
+  instructions:   "סיכום אוטומטי של הנחיות",
+  delayFlag:      "דגל עיכוב בהתקדמות",
+  completionEst:  "הערכה אוטומטית לזמן סיום",
+  approved:       "גישת לקוח פתוחה",
+  clientEmail:    "מייל לקוח",
+  linkedCorrections: "תיקונים לאירוע",
+  // תיקונים (Corrections)
+  correctionDesc:  "תיאור התיקון בעברית",
+  correctionEvent: "אירוע קשור",
+  correctionTime:  "זמן בסרט",
+  correctionCat:   "קטגוריה",
+  correctionType:  "סוג תיקון",
+  correctionTrans: "תרגום לעורך",
+  correctionPayment: "סטטוס תשלום",
+  correctionApproved: "אושר ע״י מנהל",
+  correctionImportance: "חשיבות תיקון אוטומטית",
+  correctionTeam:  "צוות מטפל",
+  correctionReturn: "האם חזר לתיקון",
+  // עורכים (Editors)
+  editorName:    "שם העורך",
+  editorEmail:   "אימייל",
+  editorWhatsApp: "מספר וואטסאפ",
+  editorEvents:  "אירועים משויכים",
+  editorActive:  "פרויקטים פעילים",
+  editorRating:  "דירוג ממוצע",
+  editorBio:     "ביוגרפיה מקצועית",
+  editorSkills:  "מיומנויות עיקריות",
+  editorAvail:   "זמינות",
+};
+
+/* Kanban statuses */
+const STATUSES = [
+  { key: "חדש", label: "חדש", color: "bg-slate-600", order: 1 },
+  { key: "בהפקה", label: "בהפקה", color: "bg-blue-600", order: 2 },
+  { key: "בתיקונים", label: "בתיקונים", color: "bg-rose-600", order: 3 },
+  { key: "ממתין לאישור", label: "ממתין לאישור", color: "bg-amber-500", order: 4 },
+  { key: "הושלם", label: "הושלם", color: "bg-emerald-600", order: 5 },
+];
+
+const CORRECTION_CATEGORIES = [
+  "צבע וקונטרסט",
+  "מוזיקה וסאונד",
+  "כתוביות",
+  "אחר",
+];
+
+/* ============================================================
+   AIRTABLE API HELPERS
+   ============================================================ */
+async function airtableFetch(table, params = "") {
+  const token = localStorage.getItem("airtable_token");
+  if (!token) throw new Error("No Airtable token. Please configure in settings.");
+
+  const url = `https://api.airtable.com/v0/${AIRTABLE_CONFIG.baseId}/${encodeURIComponent(table)}${params ? "?" + params : ""}`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) {
+    const err = await r.text();
+    throw new Error(`Airtable ${r.status}: ${err}`);
+  }
+  return r.json();
+}
+
+async function airtablePatch(table, recordId, fields) {
+  const token = localStorage.getItem("airtable_token");
+  if (!token) throw new Error("No Airtable token configured.");
+
+  const url = `https://api.airtable.com/v0/${AIRTABLE_CONFIG.baseId}/${encodeURIComponent(table)}/${recordId}`;
+  const r = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ fields }),
+  });
+  if (!r.ok) throw new Error(`Airtable PATCH failed: ${r.status}`);
+  return r.json();
+}
+
+async function airtableCreate(table, fields) {
+  const token = localStorage.getItem("airtable_token");
+  if (!token) throw new Error("No Airtable token configured.");
+
+  const url = `https://api.airtable.com/v0/${AIRTABLE_CONFIG.baseId}/${encodeURIComponent(table)}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ records: [{ fields }] }),
+  });
+  if (!r.ok) throw new Error(`Airtable POST failed: ${r.status}`);
+  const data = await r.json();
+  return data.records?.[0];
+}
+
+/* ============================================================
+   MAIN APP
+   ============================================================ */
+function App() {
+  const [view, setView] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("view") || "admin";
+  });
+  const [language, setLanguage] = useState("he");
+  const [showConfig, setShowConfig] = useState(false);
+  const [token, setToken] = useState(() => localStorage.getItem("airtable_token") || "");
+
+  const [events, setEvents] = useState([]);
+  const [corrections, setCorrections] = useState([]);
+  const [editors, setEditors] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const dir = language === "he" ? "rtl" : "ltr";
+  const t = language === "he" ? TEXT_HE : TEXT_EN;
+
+  const loadData = async () => {
+    if (!token) {
+      setError("⚠ אנא הגדר את Airtable Token בהגדרות");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const [e, c, ed] = await Promise.all([
+        airtableFetch(AIRTABLE_CONFIG.tables.events, "pageSize=100"),
+        airtableFetch(AIRTABLE_CONFIG.tables.corrections, "pageSize=100"),
+        airtableFetch(AIRTABLE_CONFIG.tables.editors, "pageSize=100"),
+      ]);
+      setEvents(e.records || []);
+      setCorrections(c.records || []);
+      setEditors(ed.records || []);
+    } catch (err) {
+      setError(`❌ ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token) loadData();
+  }, [token]);
+
+  const saveToken = (newToken) => {
+    localStorage.setItem("airtable_token", newToken);
+    setToken(newToken);
+    setShowConfig(false);
+  };
+
+  const switchView = (v) => {
+    const url = new URL(window.location);
+    url.searchParams.set("view", v);
+    window.history.replaceState({}, "", url);
+    setView(v);
+  };
+
+  return (
+    <div dir={dir} className="min-h-screen bg-slate-900 text-slate-100">
+      {/* Header */}
+      <header className="bg-slate-800 border-b border-slate-700 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">V</div>
+            <h1 className="font-bold text-lg md:text-xl">{t.appName}</h1>
+            {token && <span className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">✓ חי</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            {["admin", "client", "editor"].map(v => (
+              <button key={v} onClick={() => switchView(v)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                  view === v ? "bg-indigo-600 text-white" : "bg-slate-700 hover:bg-slate-600"
+                }`}>
+                {v === "admin" ? "👨‍💼" : v === "client" ? "👥" : "✏️"} {v}
+              </button>
+            ))}
+            <button onClick={() => setLanguage(language === "he" ? "en" : "he")}
+              className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600 text-sm">
+              {language === "he" ? "EN" : "HE"}
+            </button>
+            <button onClick={loadData} className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600 text-sm">↻</button>
+            <button onClick={() => setShowConfig(!showConfig)} className="px-3 py-1.5 rounded-md bg-slate-700 hover:bg-slate-600 text-sm">⚙</button>
+          </div>
+        </div>
+        {error && <div className="bg-red-600/30 text-red-200 px-4 py-2 text-sm">{error}</div>}
+      </header>
+
+      {/* Config Modal */}
+      {showConfig && (
+        <div className="fixed inset-0 bg-black/70 z-40 flex items-center justify-center p-4" onClick={() => setShowConfig(false)}>
+          <div className="bg-slate-800 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold mb-4">Airtable Token</h2>
+            <input type="password" value={token} onChange={e => setToken(e.target.value)}
+              placeholder="Your Personal Access Token"
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 mb-4 text-slate-100" />
+            <div className="flex gap-2">
+              <button onClick={() => setShowConfig(false)} className="flex-1 px-4 py-2 rounded-md bg-slate-700">ביטול</button>
+              <button onClick={() => saveToken(token)} className="flex-1 px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500">שמור</button>
+            </div>
+            <p className="text-xs text-slate-400 mt-4">Base ID: {AIRTABLE_CONFIG.baseId}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto p-4">
+        {loading && <div className="text-center text-slate-400 py-8">טוען...</div>}
+        {!loading && (
+          <>
+            {view === "admin" && <AdminDashboard events={events} corrections={corrections} editors={editors} setEvents={setEvents} />}
+            {view === "client" && <ClientView events={events} corrections={corrections} setCorrections={setCorrections} />}
+            {view === "editor" && <EditorPortal events={events} corrections={corrections} editors={editors} setEvents={setEvents} />}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+/* ============================================================
+   ADMIN DASHBOARD
+   ============================================================ */
+function AdminDashboard({ events, corrections, editors, setEvents }) {
+  const [search, setSearch] = useState("");
+  const [openEvent, setOpenEvent] = useState(null);
+
+  const grouped = useMemo(() => {
+    const g = Object.fromEntries(STATUSES.map(s => [s.key, []]));
+    events.forEach(ev => {
+      const s = ev.fields[FIELDS.status] || "חדש";
+      if (g[s]) g[s].push(ev);
+    });
+    return g;
+  }, [events]);
+
+  const stats = useMemo(() => ({
+    total: events.length,
+    sentiment: events.filter(e => e.fields[FIELDS.sentimentFlag]).length,
+    aiAlert: events.filter(e => e.fields[FIELDS.aiAlert]).length,
+  }), [events]);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="סך הכל אירועים" value={stats.total} />
+        <Stat label="דגלי סנטימנט" value={stats.sentiment} color="text-rose-300" />
+        <Stat label="התראות AI" value={stats.aiAlert} color="text-amber-300" />
+      </div>
+      <input placeholder="🔍 חפש..." value={search} onChange={e => setSearch(e.target.value)}
+        className="w-full md:w-80 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {STATUSES.map(s => (
+          <KanbanCol key={s.key} status={s} events={grouped[s.key]} onCardClick={setOpenEvent} setEvents={setEvents} />
+        ))}
+      </div>
+      {openEvent && <EventModal event={openEvent} onClose={() => setOpenEvent(null)} />}
+    </div>
+  );
+}
+
+function KanbanCol({ status, events, onCardClick, setEvents }) {
+  const [draggedId, setDraggedId] = useState(null);
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    if (draggedId) {
+      try {
+        await airtablePatch(AIRTABLE_CONFIG.tables.events, draggedId, { [FIELDS.status]: status.key });
+        setEvents(prev => prev.map(ev =>
+          ev.id === draggedId ? { ...ev, fields: { ...ev.fields, [FIELDS.status]: status.key } } : ev
+        ));
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+  };
+
+  return (
+    <div onDragOver={e => e.preventDefault()} onDrop={handleDrop}
+      className="bg-slate-800 rounded-lg p-3 border border-slate-700 min-h-96">
+      <h3 className={`font-semibold text-sm mb-3 px-2 py-1 rounded ${status.color} text-white`}>{status.label}</h3>
+      <div className="space-y-2">
+        {events.map(ev => (
+          <div key={ev.id} draggable onDragStart={() => setDraggedId(ev.id)}
+            onClick={() => onCardClick(ev)}
+            className="bg-slate-700 p-3 rounded-lg cursor-move hover:bg-slate-600 transition border border-slate-600">
+            <p className="font-medium text-sm">{ev.fields[FIELDS.eventName] || "ללא שם"}</p>
+            <p className="text-xs text-slate-400 mt-1">{ev.fields[FIELDS.eventDate] || "—"}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EventModal({ event, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-slate-800 rounded-xl p-6 max-w-lg w-full max-h-96 overflow-auto" onClick={e => e.stopPropagation()}>
+        <h2 className="text-xl font-bold mb-4">{event.fields[FIELDS.eventName]}</h2>
+        <div className="space-y-2 text-sm">
+          <p><strong>תאריך:</strong> {event.fields[FIELDS.eventDate]}</p>
+          <p><strong>סטטוס:</strong> {event.fields[FIELDS.status]}</p>
+          <p><strong>מייל לקוח:</strong> {event.fields[FIELDS.clientEmail]}</p>
+          <p><strong>עורך:</strong> {event.fields[FIELDS.assignedEditor]}</p>
+        </div>
+        <button onClick={onClose} className="w-full mt-4 px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500">סגור</button>
+      </div>
+    </div>
+  );
+}
+
+const Stat = ({ label, value, color = "text-indigo-300" }) => (
+  <div className={`rounded-xl p-4 bg-slate-800 border border-slate-700 ${color}`}>
+    <div className="text-xs uppercase tracking-wide opacity-80">{label}</div>
+    <div className="text-2xl font-bold mt-1">{value}</div>
+  </div>
+);
+
+/* ============================================================
+   CLIENT VIEW
+   ============================================================ */
+function ClientView({ events, corrections, setCorrections }) {
+  const [email, setEmail] = useState("");
+  const [viewing, setViewing] = useState(null);
+
+  const clientEvent = viewing || events.find(e => e.fields[FIELDS.clientEmail]?.toLowerCase() === email.toLowerCase());
+
+  if (!email) {
+    return (
+      <div className="max-w-md mx-auto">
+        <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+          <h2 className="text-2xl font-bold mb-4">🔐 הכנס עם אימייל</h2>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="david@example.com"
+            className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 mb-4 text-slate-100" />
+          <button onClick={() => setViewing(clientEvent)} className="w-full px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500">
+            הכנס
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return clientEvent ? (
+    <div className="max-w-2xl mx-auto space-y-4">
+      <h2 className="text-2xl font-bold">{clientEvent.fields[FIELDS.eventName]}</h2>
+      <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 space-y-2">
+        <p><strong>תאריך:</strong> {clientEvent.fields[FIELDS.eventDate]}</p>
+        <p><strong>סטטוס:</strong> {clientEvent.fields[FIELDS.status]}</p>
+        {clientEvent.fields[FIELDS.videoUrl] && (
+          <div>
+            <strong>וידאו:</strong>
+            <a href={clientEvent.fields[FIELDS.videoUrl]} target="_blank" rel="noopener noreferrer"
+              className="text-indigo-400 hover:underline block">צפה בוידאו</a>
+          </div>
+        )}
+      </div>
+      <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+        <h3 className="font-bold mb-3">בקש תיקון</h3>
+        <CorrectionForm eventId={clientEvent.id} setCorrections={setCorrections} />
+      </div>
+      <button onClick={() => { setEmail(""); setViewing(null); }}
+        className="px-4 py-2 rounded-md bg-slate-700 hover:bg-slate-600">התנתק</button>
+    </div>
+  ) : (
+    <div className="text-center text-slate-400">אירוע לא נמצא</div>
+  );
+}
+
+function CorrectionForm({ eventId, setCorrections }) {
+  const [desc, setDesc] = useState("");
+  const [cat, setCat] = useState("");
+  const [time, setTime] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!desc || !cat) return;
+
+    try {
+      const fields = {
+        [FIELDS.correctionDesc]: desc,
+        [FIELDS.correctionCategory]: cat,
+        [FIELDS.correctionTime]: time,
+        [FIELDS.correctionEvent]: [eventId],
+      };
+      const created = await airtableCreate(AIRTABLE_CONFIG.tables.corrections, fields);
+      setCorrections(prev => [...prev, created]);
+      setDesc(""); setCat(""); setTime("");
+      alert("✓ התיקון נשלח בהצלחה!");
+    } catch (err) {
+      alert("❌ " + err.message);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100" />
+      <select value={cat} onChange={e => setCat(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100">
+        <option value="">בחר קטגוריה</option>
+        {CORRECTION_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+      <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="תיאור התיקון..."
+        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 h-24 resize-none" />
+      <button type="submit" className="w-full px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 font-medium">שלח</button>
+    </form>
+  );
+}
+
+/* ============================================================
+   EDITOR PORTAL
+   ============================================================ */
+function EditorPortal({ events, corrections, editors, setEvents }) {
+  const [editorId, setEditorId] = useState("");
+
+  const editor = editors.find(e => e.id === editorId);
+  const assigned = editorId ? events.filter(e => {
+    const assigned = e.fields[FIELDS.assignedEditor] || [];
+    return Array.isArray(assigned) ? assigned.includes(editorId) : assigned === editorId;
+  }) : [];
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      {!editorId ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {editors.map(ed => (
+            <button key={ed.id} onClick={() => setEditorId(ed.id)}
+              className="p-4 bg-slate-800 rounded-lg border border-slate-700 hover:border-indigo-500 transition text-left">
+              <p className="font-bold">{ed.fields[FIELDS.editorName]}</p>
+              <p className="text-sm text-slate-400">{ed.fields[FIELDS.editorEmail]}</p>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <button onClick={() => setEditorId("")} className="px-4 py-2 rounded-md bg-slate-700 hover:bg-slate-600">← חזור</button>
+          <h2 className="text-2xl font-bold">👋 {editor?.fields[FIELDS.editorName]}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {assigned.map(ev => (
+              <div key={ev.id} className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                <h3 className="font-bold mb-2">{ev.fields[FIELDS.eventName]}</h3>
+                <p className="text-sm text-slate-400 mb-3">{ev.fields[FIELDS.eventDate]}</p>
+                <p className="text-sm mb-3">{ev.fields[FIELDS.editorInstrHe]}</p>
+                {ev.fields[FIELDS.rawUrl] && (
+                  <a href={ev.fields[FIELDS.rawUrl]} target="_blank" rel="noopener noreferrer"
+                    className="text-indigo-400 hover:underline text-sm block mb-3">📁 חומרים חיצוניים</a>
+                )}
+                <button onClick={() => {
+                  airtablePatch(AIRTABLE_CONFIG.tables.events, ev.id, { [FIELDS.status]: "הושלם" })
+                    .then(() => {
+                      setEvents(prev => prev.map(e =>
+                        e.id === ev.id ? { ...e, fields: { ...e.fields, [FIELDS.status]: "הושלם" } } : e
+                      ));
+                      alert("✓ סיום בהצלחה!");
+                    })
+                    .catch(err => alert("❌ " + err.message));
+                }} className="w-full px-3 py-2 rounded-md bg-green-600 hover:bg-green-700 text-sm font-medium">
+                  סיים והודע ללקוח ✓
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   TRANSLATIONS
+   ============================================================ */
+const TEXT_HE = {
+  appName: "ניהול הפקת וידאו",
+};
+
+const TEXT_EN = {
+  appName: "Video Production Manager",
+};
+
+/* Render */
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
